@@ -207,7 +207,7 @@ This yaml file creates a single PVC, `pvc-example`, which uses our nfs-client st
 
 Apply it, and you should see a new folder be made on the NFS server, that starts with `pvc-example`. Congrats! You've successfully configured NFS!
 
-## 3.) Install Nginx, But Not as a Load Balancer
+## 3.) Install Nginx to Host Static Content
 
 ### 3.1) Install NGINX
 
@@ -301,7 +301,26 @@ spec:
 
 Put all of those together in a single file and apply it! Your server should spin up and start serving your website, but we have no means of accessing it yet. Before we configure ingress, lets set up TLS.
 
-### 3.2) Configure HTTPS
+### 3.2) HTTP Session Persistence
+
+By default, K3S uses Traefik as its ingress controller, which we'll talk about in greater detail later. Essentially, this means that Traefik takes in all http(s) requests, checks them against Ingress rules you define, then routes that request to an internal service for further processing. For deployments with more than one replica, Traefik will perform some rudimentary "round-robin" load balancing on the requests. This can cause some issues with services that require authentication.
+
+For example: Say Alice issues a request to authenticate with your service, which is handled by Pod A. After this request, Traefik advances its round-robin queue to prepare to send the next request to the next pod in sequence. Alice then requests to use her authentication to retrieve some data, and the request is forwarded to Pod B. Since Pod B did not authenticate Alice, her request is denied, and she may receive some undefined behavior instead.
+
+This issue can be solved by issuing an affinity or "sticky session" cookie, a special cookie which lets Traefik know which pod originally handled the request and allows the client to maintain its session with that pod. This cookie lasts the duration of the session, after which the client's next request will go back through the load balancer.
+
+Sticky session cookies are dead easy to implement. Go to the service definition and add the following, either through `kubectl` or the dashboard:
+
+```yaml
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/service.sticky.cookie: 'true'
+    traefik.ingress.kubernetes.io/service.sticky.cookie.name: cookie-name
+```
+
+That's all you need! Now web sessions should work properly.
+
+### 3.3) Configure HTTPS
 
 We'll dynamically configure our TLS certs using a useful tool, called cert-manager.
 
@@ -364,7 +383,7 @@ spec:
 
 Apply that! Now, we're about ready to get our Ingress configured!
 
-### 3.3) Configure Ingress
+### 3.4) Configure Ingress
 
 Any data that comes through on 80 or 443 goes through our ingress controller, Traefik. Let's use an ingress definition to tell our router how to forward our data.
 
