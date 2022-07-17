@@ -366,24 +366,19 @@ Here's an example of a solver section for HTTP-01, assuming your service will be
           class: traefik
 ```
 
+For more on Configuring HTTP-01 solvers, see [cert-manager's docs](https://cert-manager.io/docs/configuration/acme/http01/).
+
 ### 4.2) DNS-01 Challenge
 
 The DNS-01 challenge requires for you to set a TXT record under the `_acme-challenge` key of whatever (sub)domain you're trying to verify. The contents of the TXT record is the token that the ACME server issues you during your challenge.
 
 DNS-01 is the ideal challenge to use if you can't be bothered to expose an HTTP server every 90 days for the sake of renewing. Most DNS providers (i.e. Cloudflare) have a JSON API you can use to automatically update records, so passing this challenge is pretty simple and secure for LAN use.
 
-Here's an example of a solver section for HTTP-01, assuming your domain is registered with Cloudflare:
+The rest of this section is an example on how to configure DNS-01, assuming your domain is registered with Cloudflare.
 
-```yaml
-    solvers:
-    - dns01:
-        cloudflare:
-          apiTokenSecretRef:
-            name: cloudflare-api-token-secret
-            key: api-token
-```
+First you'll need to generate an API token. The API token should be made in the Cloudflare dashboard by navigating to **User Profile > API Tokens > API Tokens** and making a token with the `Zone:Edit` perms, and your domain added as a valid zone.
 
-Note that this configuration makes a reference to a secret in the `cert-manager` namespace, so you'll need to make that too:
+Now, lets store that token in a secret within the `cert-manager` namespace. Make a file, and paste the contents, making sure to paste your actual API token.
 
 ```yaml
 apiVersion: v1
@@ -396,7 +391,18 @@ stringData:
   api-token: <API Token>
 ```
 
-The API token should be made in the Cloudflare dashboard by navigating to **User Profile > API Tokens > API Tokens** and making a token with the `Zone:Edit` perms, and your domain added as a valid zone.
+Apply, and now we can use that token in our solvers! Here's an example of a solver section using that token:
+
+```yaml
+    solvers:
+    - dns01:
+        cloudflare:
+          apiTokenSecretRef:
+            name: cloudflare-api-token-secret
+            key: api-token
+```
+
+For more on Configuring DNS-01 solvers, see [cert-manager's docs](https://cert-manager.io/docs/configuration/acme/dns01/). The DNS-01 section has subsections with configuration for each of the major DNS providers, like Cloudflare, DigitalOcean, Route53, Google Cloud DNS, etc.
 
 ### 4.3) Configuring your Issuers
 
