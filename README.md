@@ -320,17 +320,17 @@ metadata:
 
 That's all you need! Now web sessions should work properly.
 
-### 3.3) Configure HTTPS
+## 4.) Configure HTTPS
 
-We'll dynamically configure our TLS certs using a useful tool, called cert-manager.
-
-Apply cert-manager's boilerplate using the following command:
+We'll dynamically configure our TLS certs using a useful tool, called cert-manager. Apply cert-manager's boilerplate using the following command:
 
 ```bash
 kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.8.0/cert-manager.yaml
 ```
 
-Now, lets configure our providers that implement some of the classes from cert-manager. Make a file, `letsencrypt-cert-issuers.yaml`, and paste the following:
+You should now have cert-manager installed! Now we need to configure it to grab certs for us. We'll be using an ACME service called Let's Encrypt to automatically get our TLS certificates. These certs only last for 90 days, but cert-manager automatically handles renewing them for us. Pretty simple!
+
+Here's an example of a certificate issuer we can make in our cluster:
 
 ```yaml
 apiVersion: cert-manager.io/v1
@@ -344,9 +344,79 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-staging
     solvers:
+      #...
+```
+
+The only part that's missing from this issuer definition is the solvers section, which brings us to the un-fun part of getting certs: ACME challenges.
+
+When interacting with an ACME server, either by using cert-manager or `certbot` in your command line, you'll request a cert for a domain you control, and to prove you control this domain, the server will issue a challenge. These challenges take one of two forms: HTTP or DNS.
+
+### 4.1) HTTP-01 Challenge
+
+The HTTP-01 challenge requires you host a very specific file on your web server, typically in the `.well-known/acme-challenge/` directory. The file name is the token that the ACME server issues you during your challenge, and the file contents are a concatenation of said token and a thumbprint of your account key.
+
+HTTP-01 is an ideal challenge to use if you're already planning on publishing whatever service will be hosted under this domain. Cert-manager will handle adding the file and removing it automatically when it's time to renew. However, if you're hosting a service locally and don't plan on port-forwarding (or exposing the server by some other means like Cloudflare tunnel) then this method may be a royal pain.
+
+Here's an example of a solver section for HTTP-01, assuming your service will be behind k3s's default Traefik ingress manager:
+
+```yaml
+    solvers:
     - http01:
         ingress:
           class: traefik
+```
+
+### 4.2) DNS-01 Challenge
+
+The DNS-01 challenge requires for you to set a TXT record under the `_acme-challenge` key of whatever (sub)domain you're trying to verify. The contents of the TXT record is the token that the ACME server issues you during your challenge.
+
+DNS-01 is the ideal challenge to use if you can't be bothered to expose an HTTP server every 90 days for the sake of renewing. Most DNS providers (i.e. Cloudflare) have a JSON API you can use to automatically update records, so passing this challenge is pretty simple and secure for LAN use.
+
+Here's an example of a solver section for HTTP-01, assuming your domain is registered with Cloudflare:
+
+```yaml
+    solvers:
+    - dns01:
+        cloudflare:
+          apiTokenSecretRef:
+            name: cloudflare-api-token-secret
+            key: api-token
+```
+
+Note that this configuration makes a reference to a secret in the `cert-manager` namespace, so you'll need to make that too:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  namespace: cert-manager
+  name: cloudflare-api-token-secret
+type: Opaque
+stringData:
+  api-token: <API Token>
+```
+
+The API token should be made in the Cloudflare dashboard by navigating to **User Profile > API Tokens > API Tokens** and making a token with the `Zone:Edit` perms, and your domain added as a valid zone.
+
+### 4.3) Configuring your Issuers
+
+Now that we know which challenge we're using and how they're implemented, let's configure our issuers that will automatically grab our certs for us. We'll make two: one for testing (staging) and one for production.
+
+Make a file, `letsencrypt-cert-issuers.yaml`, and paste the following, making sure to replace your email and paste in your solver configuration for each. (Note that these issuers don't have to have identical solvers! If you want staging to use DNS-01 and prod to use HTTP-01, that can be configured.)
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    email: youremailhere@example.com
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging
+    solvers:
+      #...
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -359,13 +429,13 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:
-    - http01:
-        ingress:
-          class: traefik
+      #...
 ---
 ```
 
-Apply the file, and you should now have two cert issuers that use certbot's prod and staging servers respectively!
+Apply the file, and you should now have two cert issuers that use certbot's staging and prod ACME servers respectively!
+
+### 4.4) Configuring an HTTPS Redirect
 
 While we're here, we should really configure a redirect to force our traffic to use HTTPS. Here's a hack:
 
@@ -383,7 +453,7 @@ spec:
 
 Apply that! Now, we're about ready to get our Ingress configured!
 
-### 3.4) Configure Ingress
+### 4.5) Configure Ingress
 
 Any data that comes through on 80 or 443 goes through our ingress controller, Traefik. Let's use an ingress definition to tell our router how to forward our data.
 
@@ -429,9 +499,9 @@ Before we apply it, let's understand a few things:
 
 Now apply it, and your site should be live!
 
-## 4.) Installing PiHole
+## 5.) Installing PiHole
 
-### 4.1) Setting up the Basics
+### 5.1) Setting up the Basics
 
 Let's start by setting up the basics: a namespace and PVC!
 
@@ -472,7 +542,7 @@ data:
 type: Opaque
 ```
 
-### 4.2) Deploying
+### 5.2) Deploying
 
 Deploying Pihole is pretty fun! Look at how long this one is!
 
@@ -548,7 +618,7 @@ spec:
 status: {}
 ```
 
-### 4.3) Exposing The Services
+### 5.3) Exposing The Services
 
 Now, this case is interesting because we functionally have two services that we want to expose:
 
